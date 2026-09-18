@@ -343,11 +343,19 @@ Supabase's free tier covers a small managed Postgres *and* a Storage bucket
 in the same project, which is what makes the app itself stay fully
 stateless — a hard requirement for Render's free tier to actually work here.
 
-1. Create a Supabase project → grab its Postgres connection string for
-   `DATABASE_URL`, and its Project URL + `service_role` key for
-   `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`.
-2. In Supabase Storage, create a bucket (default name `documents`, or set
-   `SUPABASE_BUCKET` to whatever you called it).
+1. Create a Supabase project → **Project Settings → Database → Connection
+   string**, and use the **Session pooler** URI (port `5432`) for
+   `DATABASE_URL` — not "Direct connection" (that hostname is IPv6-only, so
+   it's unreachable on plenty of networks/hosts) and not "Transaction
+   pooler" (port `6543`; `prisma migrate deploy` hangs against it, since
+   transaction-mode pooling doesn't support the session-level advisory
+   locks Prisma's migration engine needs). Both gotchas were hit and
+   confirmed while verifying this. Also grab **Project Settings → API**'s
+   Project URL + `service_role` key for `SUPABASE_URL` /
+   `SUPABASE_SERVICE_ROLE_KEY`.
+2. In Supabase Storage, create a bucket and set `SUPABASE_BUCKET` to
+   its exact name — bucket names are case-sensitive (default assumed here
+   is `documents`).
 3. Run `npx prisma migrate deploy` against that `DATABASE_URL` once (or let
    Render's start command do it — `start:prod` already runs it before
    booting the app).
