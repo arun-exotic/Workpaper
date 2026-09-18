@@ -276,6 +276,7 @@ the whole workflow above is clickable without curl.
 
 ## Sample data
 
+Picked from the datasets suggested in [`docs/REFERENCE.md`](docs/REFERENCE.md).
 [`sample-data/bank_statement_sample.pdf`](sample-data/bank_statement_sample.pdf)
 is a real (synthetic) 6-page Indian bank statement — file `00001.pdf` from
 [AgamiAI/Indian-Bank-Statements](https://huggingface.co/datasets/AgamiAI/Indian-Bank-Statements)
@@ -308,6 +309,13 @@ prisma/
   seed.ts
 test/
   audit-workflow.e2e-spec.ts   golden path + isolation + RBAC
+docs/
+  TASK.md              the evaluation brief this repo implements
+  REFERENCE.md         evaluator-suggested sample datasets
+  openapi.json         generated OpenAPI spec (mirrors /docs at runtime)
+  screenshots/         see the note under "Trying it end-to-end" above
+sample-data/
+  bank_statement_sample.pdf   see "Sample data" above
 ```
 
 ## What would I improve with one more week?
@@ -347,7 +355,7 @@ seed script, e2e test suite, and this README.
 **Cursor**: Not used.
 **GitHub Copilot**: Not used.
 
-**How AI was used**: I described the task (this repo's `TASK.md`) and asked
+**How AI was used**: I described the task (this repo's [`docs/TASK.md`](docs/TASK.md)) and asked
 for a NestJS/Prisma/Postgres backend following the tenant-scoping and
 guard/interceptor conventions of an existing production codebase I referenced
 for architectural consistency. Claude proposed the Prisma Client extension +
