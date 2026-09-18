@@ -247,10 +247,11 @@ TOKEN=$(curl -s -X POST http://localhost:3000/auth/login \
 curl -s http://localhost:3000/clients -H "Authorization: Bearer $TOKEN"
 curl -s http://localhost:3000/clients/1/documents -H "Authorization: Bearer $TOKEN"
 
-# 3. Upload the Bank Statement (document id 1)
+# 3. Upload the Bank Statement (document id 1) — using the realistic sample
+#    PDF in sample-data/, see "Sample data" below
 curl -s -X POST http://localhost:3000/documents/1/upload \
   -H "Authorization: Bearer $TOKEN" \
-  -F "file=@/path/to/bank_statement.pdf"
+  -F "file=@sample-data/bank_statement_sample.pdf"
 
 # 4. Log in as the reviewer, start review, request a correction
 REVIEWER=$(curl -s -X POST http://localhost:3000/auth/login \
@@ -272,6 +273,20 @@ the whole workflow above is clickable without curl.
 > **Screenshots**: the submission brief asks for screenshots in the repo.
 > Add a few PNGs of the Swagger UI flow above (or of the eventual Lovable/v0
 > frontend) to `docs/screenshots/` before submitting — none are committed yet.
+
+## Sample data
+
+[`sample-data/bank_statement_sample.pdf`](sample-data/bank_statement_sample.pdf)
+is a real (synthetic) 6-page Indian bank statement — file `00001.pdf` from
+[AgamiAI/Indian-Bank-Statements](https://huggingface.co/datasets/AgamiAI/Indian-Bank-Statements)
+on Hugging Face (Apache-2.0, entirely synthetic data generated for exactly
+this kind of testing — no real client/bank information). Used above in
+place of a placeholder text file, so an upload actually looks like the
+document it claims to be. Already exercised through the full workflow once
+in local dev — uploaded as XYZ & Co.'s Bank Statement (document id 6),
+reviewed, and approved — but that was a one-off manual run against a running
+dev server, not something the seed script itself does; a fresh `npm run
+db:seed` leaves document 6 as `PENDING` like every other seeded document.
 
 ## Project structure
 
