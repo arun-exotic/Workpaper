@@ -1,10 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient } from '@supabase/supabase-js';
 import { FileStorageService } from './file-storage.service';
 
-/** STORAGE_DRIVER=supabase: used when deployed, so uploads survive a redeploy. */
-@Injectable()
+/**
+ * STORAGE_DRIVER=supabase: used when deployed, so uploads survive a
+ * redeploy. Not `@Injectable()` — see StorageModule's comment on why this
+ * is constructed by hand rather than through Nest's container (this
+ * constructor throws if SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY aren't set,
+ * which must not happen just because Nest eagerly instantiated it).
+ */
 export class SupabaseStorageService extends FileStorageService {
   private readonly client: ReturnType<typeof createClient>;
   private readonly bucket: string;
@@ -34,7 +38,7 @@ export class SupabaseStorageService extends FileStorageService {
       .from(this.bucket)
       .download(key);
     if (error || !data) {
-      throw new NotFoundException('The uploaded file is missing from storage');
+      return this.missing();
     }
     return Buffer.from(await data.arrayBuffer());
   }
