@@ -1,21 +1,45 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { AuditAction, DocumentStatus, Prisma } from '@prisma/client';
-import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { FileStorageService } from '../storage/file-storage.service';
 import { RequestContext } from '../common/context/request-context';
 import { assertFound } from '../common/errors/assert-found';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { ReviewAction, ReviewDocumentDto } from './dto/review-document.dto';
+
+// Small, fixed set of extensions this app's documents actually use — a full
+// mime-type library would be overkill for a prototype that only ever stores
+// scanned financial documents.
+const MIME_TYPES: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.csv': 'text/csv',
+  '.txt': 'text/plain',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+};
+
+function mimeTypeFor(filename: string | null): string {
+  if (!filename) return 'application/octet-stream';
+  return (
+    MIME_TYPES[path.extname(filename).toLowerCase()] ??
+    'application/octet-stream'
+  );
+}
 
 @Injectable()
 export class DocumentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    private readonly config: ConfigService,
+    private readonly storage: FileStorageService,
   ) {}
 
   async create(clientId: number, dto: CreateDocumentDto) {
@@ -62,6 +86,24 @@ export class DocumentsService {
     return assertFound(document, 'Document not found');
   }
 
+  /** The actual uploaded file, for a real download/view instead of just its metadata. */
+  async getFile(id: number) {
+    const document = await this.getDocumentOrThrow(id);
+    if (!document.filePath) {
+      throw new NotFoundException(
+        'No file has been uploaded for this document yet',
+      );
+    }
+
+    const buffer = await this.storage.read(document.filePath);
+    return {
+      buffer,
+      size: buffer.length,
+      filename: document.fileOriginalName ?? `document-${id}`,
+      mimeType: mimeTypeFor(document.fileOriginalName),
+    };
+  }
+
   /** Staff uploads (or re-uploads after a correction request). */
   async upload(id: number, file: { originalname: string; buffer: Buffer }) {
     const document = await this.getDocumentOrThrow(id);
@@ -86,27 +128,20 @@ export class DocumentsService {
     // deliberately redundant — it shouldn't depend on that upstream
     // default holding forever, since this is the one place a filename
     // controlled by an authenticated-but-untrusted upload ends up in a
-    // filesystem path.
+    // storage key (a filesystem path for the local driver, an object key
+    // for Supabase Storage — see src/storage/).
     const safeOriginalName = path.basename(file.originalname);
     const storedName = `${id}-${Date.now()}-${safeOriginalName}`;
-    const relativePath = path.join(
-      String(firmId),
-      String(document.clientId),
-      storedName,
-    );
-    const uploadRoot = this.config.get<string>('UPLOAD_DIR', 'uploads');
+    const storageKey = `${firmId}/${document.clientId}/${storedName}`;
 
-    await fs.mkdir(path.dirname(path.join(uploadRoot, relativePath)), {
-      recursive: true,
-    });
-    await fs.writeFile(path.join(uploadRoot, relativePath), file.buffer);
+    await this.storage.save(storageKey, file.buffer);
 
     return this.prisma.db.$transaction(async (tx) => {
       const updated = await tx.document.update({
         where: { id },
         data: {
           status: DocumentStatus.UPLOADED,
-          filePath: relativePath,
+          filePath: storageKey,
           fileOriginalName: safeOriginalName,
           uploadedById: RequestContext.getUserId(),
           uploadedAt: new Date(),

@@ -148,11 +148,14 @@ interface AuditEvent {
 }
 ```
 
-There is no direct file-download endpoint in this prototype — `filePath` is
-a server-relative disk path, not a servable URL. If the mock UI needs an
-"open the uploaded file" affordance, treat it as a placeholder (e.g. show
-`fileOriginalName` with a disabled/mock download button) rather than wiring
-it to `filePath` directly.
+`filePath` itself is an internal storage key (a disk-relative path or a
+Supabase Storage object key, depending on deployment — see README's
+"Deploying" section), not a servable URL — don't link to it directly. Use
+`GET /documents/:id/file` (below) instead, which
+streams the real file back; point a link/button at that URL directly (it
+needs the `Authorization` header like everything else, so a plain `<a href>`
+won't carry auth — fetch it and open a blob URL, or proxy it through
+whatever auth-aware HTTP client the rest of the UI already uses).
 
 ## Endpoints
 
@@ -208,6 +211,22 @@ Full detail for one document — the "review" screen's main data source.
 
 Response `200`: `Document` with `client` and `uploadedBy` populated.
 `404` for a cross-firm id, same rule as clients.
+
+### `GET /documents/:id/file`
+The actual uploaded file's bytes — not JSON. `Content-Type` is guessed from
+the file's extension (`application/pdf`, `image/png`, etc., falling back to
+`application/octet-stream`), and `Content-Disposition: inline; filename="…"`
+carries the original filename, so opening this URL in a new tab renders a
+PDF/image directly and "save as" still works.
+
+`404` in three cases, same generic body each time (`{ "message": "...",
+"error": "Not Found", "statusCode": 404 }`):
+- the document doesn't exist or belongs to another firm
+- the document exists but nothing's been uploaded yet (`status: "PENDING"`
+  or `"CORRECTION_REQUIRED"` with no prior upload)
+- the DB says a file exists but the storage backend can't find it
+  (shouldn't happen in normal use — see README's "Deploying" section on
+  why this was more likely before storage moved behind a driver)
 
 ### `POST /documents/:id/upload` — STAFF or ADMIN
 Staff uploads (or re-uploads after a correction request). **Multipart

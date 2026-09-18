@@ -6,6 +6,7 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  StreamableFile,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -52,6 +53,23 @@ export class DocumentsController {
   @Roles(Role.ADMIN, Role.STAFF, Role.REVIEWER)
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.documentsService.findOne(id);
+  }
+
+  @Get('documents/:id/file')
+  @Roles(Role.ADMIN, Role.STAFF, Role.REVIEWER)
+  async downloadFile(
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<StreamableFile> {
+    const { buffer, size, filename, mimeType } =
+      await this.documentsService.getFile(id);
+    // "inline" (not "attachment") so a PDF opens in the browser tab a
+    // frontend's "view document" link points at, while still letting the
+    // user save it — same endpoint covers both "view" and "download".
+    return new StreamableFile(buffer, {
+      type: mimeType,
+      length: size,
+      disposition: `inline; filename="${filename}"`,
+    });
   }
 
   @Post('documents/:id/upload')

@@ -194,8 +194,11 @@ DATABASE_URL="postgresql://postgres@localhost:5432/audit_workflow?schema=public"
 JWT_SECRET="dev-only-secret-change-me"
 JWT_EXPIRES_IN="8h"
 PORT=3000
+STORAGE_DRIVER="local"
 UPLOAD_DIR="uploads"
 ```
+
+(`STORAGE_DRIVER` also accepts `"supabase"`, backed by Supabase Storage instead of local disk — see [Deploying](#deploying) below. Local dev and every automated test use `"local"`, so none of this needs real cloud credentials to run.)
 
 ### 3. Run migrations and seed two firms
 
@@ -323,18 +326,57 @@ sample-data/
   bank_statement_sample.pdf   see "Sample data" above
 ```
 
+## Deploying
+
+A live deploy isn't required (the brief accepts "clear instructions to run
+locally" on its own), but if you want one: **Render** for the app, **Supabase**
+for both Postgres and Storage. Two reasons this split, not one vendor:
+
+- Whatever runs the app needs a database it can reach over the network —
+  the local Postgres in the setup above only listens on `localhost`.
+- Render's free tier (and most free app-hosting tiers) has no persistent
+  disk: the container's filesystem resets on every redeploy and on
+  waking from an inactivity-driven spin-down. Local-disk storage would
+  silently lose every uploaded file the next time either happens.
+
+Supabase's free tier covers a small managed Postgres *and* a Storage bucket
+in the same project, which is what makes the app itself stay fully
+stateless — a hard requirement for Render's free tier to actually work here.
+
+1. Create a Supabase project → **Project Settings → Database → Connection
+   string**, and use the **Session pooler** URI (port `5432`) for
+   `DATABASE_URL` — not "Direct connection" (that hostname is IPv6-only, so
+   it's unreachable on plenty of networks/hosts) and not "Transaction
+   pooler" (port `6543`; `prisma migrate deploy` hangs against it, since
+   transaction-mode pooling doesn't support the session-level advisory
+   locks Prisma's migration engine needs). Both gotchas were hit and
+   confirmed while verifying this. Also grab **Project Settings → API**'s
+   Project URL + `service_role` key for `SUPABASE_URL` /
+   `SUPABASE_SERVICE_ROLE_KEY`.
+2. In Supabase Storage, create a bucket and set `SUPABASE_BUCKET` to
+   its exact name — bucket names are case-sensitive (default assumed here
+   is `documents`).
+3. Run `npx prisma migrate deploy` against that `DATABASE_URL` once (or let
+   Render's start command do it — `start:prod` already runs it before
+   booting the app).
+4. On Render, create a Web Service from this repo. Build command
+   `npm install && npm run build`, start command `npm run start:prod`. Set
+   env vars: `DATABASE_URL`, `JWT_SECRET` (a real one — not the dev
+   placeholder), `JWT_EXPIRES_IN`, `STORAGE_DRIVER=supabase`,
+   `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_BUCKET`. Render
+   sets `PORT` itself.
+
 ## What would I improve with one more week?
 
-**Real object storage and virus scanning for uploads.** Right now files land
-on local disk under `uploads/<firmId>/<clientId>/...`, which is fine for a
-prototype but wrong for anything that outlives one machine — it doesn't
-survive a redeploy, doesn't scale past one instance, and never validates
-what's actually inside the file a "staff" account just handed the server.
-I'd move to S3 (or R2/GCS) with pre-signed upload URLs, keep only the object
-key in `Document.filePath`, and run uploads through a size/MIME/malware check
-before they're persisted — closing the most realistic security gap in the
-current build (arbitrary file upload from an authenticated-but-untrusted
-role).
+**Content validation on uploads.** Storage itself is already abstracted
+behind `FileStorageService` (`src/storage/`) — local disk for dev/tests,
+Supabase Storage in deployment — so *where* files live isn't the gap
+anymore. What's still missing is validating *what's inside* them: right now
+any authenticated STAFF/ADMIN can hand the server a size-and-extension-valid
+file with arbitrary content, and nothing checks it's actually the PDF/image
+it claims to be, let alone scans it. I'd add a MIME-sniffing check (not just
+trusting the extension) and a malware scan before persisting — the most
+realistic security gap left in the current build.
 
 Close behind that: a `Partner/Admin`-level ability to assign specific clients
 to specific staff/reviewers (right now every role sees every client in their
