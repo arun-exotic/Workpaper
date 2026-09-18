@@ -235,6 +235,41 @@ describe('Audit workflow (e2e)', () => {
     ]);
   });
 
+  it('serves the actual uploaded file back, not just its metadata', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/documents/${documentId}/file`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .expect(200);
+
+    // The golden-path test above re-uploaded this exact 16-byte content
+    // ("all three pages") as bank_statement_v2.pdf before approval — check
+    // it's the real bytes on disk, not just a metadata echo, without
+    // fighting supertest's content-type-based body parsing.
+    expect(res.headers['content-length']).toBe(
+      String(Buffer.byteLength('all three pages')),
+    );
+    expect(res.headers['content-type']).toBe('application/pdf');
+    expect(res.headers['content-disposition']).toContain(
+      'bank_statement_v2.pdf',
+    );
+  });
+
+  it('404s for a document that has no file uploaded yet', async () => {
+    const pendingDoc = await rawPrisma.document.create({
+      data: {
+        firmId: firmAId,
+        clientId,
+        name: 'Never Uploaded',
+        status: 'PENDING',
+      },
+    });
+
+    await request(app.getHttpServer())
+      .get(`/documents/${pendingDoc.id}/file`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .expect(404);
+  });
+
   it('blocks a re-upload of an already-approved document', async () => {
     await request(app.getHttpServer())
       .post(`/documents/${documentId}/upload`)
@@ -258,6 +293,11 @@ describe('Audit workflow (e2e)', () => {
 
     await request(app.getHttpServer())
       .get(`/documents/${documentId}/audit-log`)
+      .set('Authorization', `Bearer ${otherFirmStaffToken}`)
+      .expect(404);
+
+    await request(app.getHttpServer())
+      .get(`/documents/${documentId}/file`)
       .set('Authorization', `Bearer ${otherFirmStaffToken}`)
       .expect(404);
   });

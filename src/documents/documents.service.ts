@@ -1,6 +1,11 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuditAction, DocumentStatus, Prisma } from '@prisma/client';
+import { createReadStream } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { PrismaService } from '../prisma/prisma.service';
@@ -9,6 +14,27 @@ import { RequestContext } from '../common/context/request-context';
 import { assertFound } from '../common/errors/assert-found';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { ReviewAction, ReviewDocumentDto } from './dto/review-document.dto';
+
+// Small, fixed set of extensions this app's documents actually use — a full
+// mime-type library would be overkill for a prototype that only ever stores
+// scanned financial documents.
+const MIME_TYPES: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.csv': 'text/csv',
+  '.txt': 'text/plain',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+};
+
+function mimeTypeFor(filename: string | null): string {
+  if (!filename) return 'application/octet-stream';
+  return (
+    MIME_TYPES[path.extname(filename).toLowerCase()] ??
+    'application/octet-stream'
+  );
+}
 
 @Injectable()
 export class DocumentsService {
@@ -60,6 +86,35 @@ export class DocumentsService {
       },
     });
     return assertFound(document, 'Document not found');
+  }
+
+  /** The actual uploaded file, for a real download/view instead of just its metadata. */
+  async getFile(id: number) {
+    const document = await this.getDocumentOrThrow(id);
+    if (!document.filePath) {
+      throw new NotFoundException(
+        'No file has been uploaded for this document yet',
+      );
+    }
+
+    const uploadRoot = this.config.get<string>('UPLOAD_DIR', 'uploads');
+    const absolutePath = path.join(uploadRoot, document.filePath);
+    let size: number;
+    try {
+      size = (await fs.stat(absolutePath)).size;
+    } catch {
+      // Disk and DB disagreeing (e.g. uploads/ wiped by an ephemeral
+      // deploy) shouldn't surface as a 500 — a missing file is a 404 same
+      // as anything else that isn't there.
+      throw new NotFoundException('The uploaded file is missing from storage');
+    }
+
+    return {
+      stream: createReadStream(absolutePath),
+      size,
+      filename: document.fileOriginalName ?? `document-${id}`,
+      mimeType: mimeTypeFor(document.fileOriginalName),
+    };
   }
 
   /** Staff uploads (or re-uploads after a correction request). */
