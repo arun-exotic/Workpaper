@@ -11,7 +11,11 @@ data modelling, and — the part the brief calls out as most important —
 tenant isolation and audit traceability. A frontend (Lovable/v0) is expected
 to sit on top of this API separately; `app.enableCors()` in
 [`src/main.ts`](src/main.ts) and the Swagger contract at `/docs` are there to
-make that integration straightforward.
+make that integration straightforward. Building that frontend (e.g. in
+Lovable/v0)? Start with
+[`docs/FRONTEND_INTEGRATION.md`](docs/FRONTEND_INTEGRATION.md) — every
+endpoint, request/response shape, and a suggested screen breakdown in one
+paste-able file.
 
 ## Stack
 
@@ -312,6 +316,7 @@ test/
 docs/
   TASK.md              the evaluation brief this repo implements
   REFERENCE.md         evaluator-suggested sample datasets
+  FRONTEND_INTEGRATION.md   API contract + suggested screens, for building a UI
   openapi.json         generated OpenAPI spec (mirrors /docs at runtime)
   screenshots/         see the note under "Trying it end-to-end" above
 sample-data/
