@@ -148,8 +148,10 @@ interface AuditEvent {
 }
 ```
 
-`filePath` itself is a server-relative disk path, not a servable URL — don't
-link to it directly. Use `GET /documents/:id/file` (below) instead, which
+`filePath` itself is an internal storage key (a disk-relative path or a
+Supabase Storage object key, depending on deployment — see README's
+"Deploying" section), not a servable URL — don't link to it directly. Use
+`GET /documents/:id/file` (below) instead, which
 streams the real file back; point a link/button at that URL directly (it
 needs the `Authorization` header like everything else, so a plain `<a href>`
 won't carry auth — fetch it and open a blob URL, or proxy it through
@@ -222,8 +224,9 @@ PDF/image directly and "save as" still works.
 - the document doesn't exist or belongs to another firm
 - the document exists but nothing's been uploaded yet (`status: "PENDING"`
   or `"CORRECTION_REQUIRED"` with no prior upload)
-- the DB says a file exists but it's missing from disk (shouldn't happen in
-  normal use; see README's "one more week" note on local disk storage)
+- the DB says a file exists but the storage backend can't find it
+  (shouldn't happen in normal use — see README's "Deploying" section on
+  why this was more likely before storage moved behind a driver)
 
 ### `POST /documents/:id/upload` — STAFF or ADMIN
 Staff uploads (or re-uploads after a correction request). **Multipart

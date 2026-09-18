@@ -3,13 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { AuditAction, DocumentStatus, Prisma } from '@prisma/client';
-import { createReadStream } from 'node:fs';
-import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { FileStorageService } from '../storage/file-storage.service';
 import { RequestContext } from '../common/context/request-context';
 import { assertFound } from '../common/errors/assert-found';
 import { CreateDocumentDto } from './dto/create-document.dto';
@@ -41,7 +39,7 @@ export class DocumentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    private readonly config: ConfigService,
+    private readonly storage: FileStorageService,
   ) {}
 
   async create(clientId: number, dto: CreateDocumentDto) {
@@ -97,21 +95,10 @@ export class DocumentsService {
       );
     }
 
-    const uploadRoot = this.config.get<string>('UPLOAD_DIR', 'uploads');
-    const absolutePath = path.join(uploadRoot, document.filePath);
-    let size: number;
-    try {
-      size = (await fs.stat(absolutePath)).size;
-    } catch {
-      // Disk and DB disagreeing (e.g. uploads/ wiped by an ephemeral
-      // deploy) shouldn't surface as a 500 — a missing file is a 404 same
-      // as anything else that isn't there.
-      throw new NotFoundException('The uploaded file is missing from storage');
-    }
-
+    const buffer = await this.storage.read(document.filePath);
     return {
-      stream: createReadStream(absolutePath),
-      size,
+      buffer,
+      size: buffer.length,
       filename: document.fileOriginalName ?? `document-${id}`,
       mimeType: mimeTypeFor(document.fileOriginalName),
     };
@@ -141,27 +128,20 @@ export class DocumentsService {
     // deliberately redundant — it shouldn't depend on that upstream
     // default holding forever, since this is the one place a filename
     // controlled by an authenticated-but-untrusted upload ends up in a
-    // filesystem path.
+    // storage key (a filesystem path for the local driver, an object key
+    // for Supabase Storage — see src/storage/).
     const safeOriginalName = path.basename(file.originalname);
     const storedName = `${id}-${Date.now()}-${safeOriginalName}`;
-    const relativePath = path.join(
-      String(firmId),
-      String(document.clientId),
-      storedName,
-    );
-    const uploadRoot = this.config.get<string>('UPLOAD_DIR', 'uploads');
+    const storageKey = `${firmId}/${document.clientId}/${storedName}`;
 
-    await fs.mkdir(path.dirname(path.join(uploadRoot, relativePath)), {
-      recursive: true,
-    });
-    await fs.writeFile(path.join(uploadRoot, relativePath), file.buffer);
+    await this.storage.save(storageKey, file.buffer);
 
     return this.prisma.db.$transaction(async (tx) => {
       const updated = await tx.document.update({
         where: { id },
         data: {
           status: DocumentStatus.UPLOADED,
-          filePath: relativePath,
+          filePath: storageKey,
           fileOriginalName: safeOriginalName,
           uploadedById: RequestContext.getUserId(),
           uploadedAt: new Date(),

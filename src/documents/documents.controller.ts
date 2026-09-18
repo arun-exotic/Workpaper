@@ -60,12 +60,12 @@ export class DocumentsController {
   async downloadFile(
     @Param('id', ParseIntPipe) id: number,
   ): Promise<StreamableFile> {
-    const { stream, size, filename, mimeType } =
+    const { buffer, size, filename, mimeType } =
       await this.documentsService.getFile(id);
     // "inline" (not "attachment") so a PDF opens in the browser tab a
     // frontend's "view document" link points at, while still letting the
     // user save it — same endpoint covers both "view" and "download".
-    return new StreamableFile(stream, {
+    return new StreamableFile(buffer, {
       type: mimeType,
       length: size,
       disposition: `inline; filename="${filename}"`,
