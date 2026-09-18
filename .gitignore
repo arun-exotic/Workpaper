@@ -1,0 +1,30 @@
+# compiled output
+/dist
+/generated/prisma
+
+# dependencies
+node_modules
+
+# environment
+.env
+.env.*.local
+
+# uploaded documents (local disk storage — see README "one more week")
+/uploads
+
+# tests
+/coverage
+
+# IDE
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea
+
+# OS
+.DS_Store
+
+# logs
+npm-debug.log

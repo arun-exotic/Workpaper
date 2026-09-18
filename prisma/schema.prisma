@@ -1,0 +1,133 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STAFF
+  REVIEWER
+  ADMIN
+}
+
+enum DocumentStatus {
+  PENDING
+  UPLOADED
+  UNDER_REVIEW
+  APPROVED
+  CORRECTION_REQUIRED
+}
+
+enum AuditAction {
+  CLIENT_CREATED
+  DOCUMENT_REQUESTED
+  DOCUMENT_UPLOADED
+  REVIEW_STARTED
+  DOCUMENT_APPROVED
+  CORRECTION_REQUESTED
+}
+
+// A CA firm — the tenant boundary. Every scoped model below carries a firmId
+// that the Prisma tenant extension (src/prisma/tenant.extension.ts) injects
+// and filters on automatically, so cross-firm access fails structurally
+// rather than relying on every controller/service remembering to filter.
+model Firm {
+  id        Int      @id @default(autoincrement())
+  name      String
+  createdAt DateTime @default(now())
+
+  users       User[]
+  clients     Client[]
+  documents   Document[]
+  auditEvents AuditEvent[]
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  firmId       Int
+  firm         Firm     @relation(fields: [firmId], references: [id])
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role
+  createdAt    DateTime @default(now())
+
+  uploadedDocuments Document[]   @relation("UploadedBy")
+  auditEvents       AuditEvent[]
+
+  @@index([firmId])
+}
+
+model Client {
+  id        Int      @id @default(autoincrement())
+  firmId    Int
+  firm      Firm     @relation(fields: [firmId], references: [id])
+  name      String
+  createdAt DateTime @default(now())
+
+  documents   Document[]
+  auditEvents AuditEvent[]
+
+  @@index([firmId])
+}
+
+model Document {
+  id     Int    @id @default(autoincrement())
+  firmId Int
+  firm   Firm   @relation(fields: [firmId], references: [id])
+
+  clientId Int
+  client   Client @relation(fields: [clientId], references: [id])
+
+  // Document type/name, e.g. "Bank Statement", "GST Return"
+  name   String
+  status DocumentStatus @default(PENDING)
+
+  filePath         String?
+  fileOriginalName String?
+
+  uploadedById Int?
+  uploadedBy   User?     @relation("UploadedBy", fields: [uploadedById], references: [id])
+  uploadedAt   DateTime?
+
+  // Set by the reviewer when requesting a correction; cleared on approval.
+  reviewComment String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  auditEvents AuditEvent[]
+
+  @@index([firmId])
+  @@index([clientId])
+}
+
+// Append-only. No update/delete is ever exposed through the API — only
+// AuditService.record() (called inside the same transaction as the state
+// change it describes) is allowed to write here.
+model AuditEvent {
+  id     Int @id @default(autoincrement())
+  firmId Int
+  firm   Firm @relation(fields: [firmId], references: [id])
+
+  clientId Int
+  client   Client @relation(fields: [clientId], references: [id])
+
+  // Nullable: client-level events (e.g. CLIENT_CREATED) have no document yet.
+  documentId Int?
+  document   Document? @relation(fields: [documentId], references: [id])
+
+  actorId Int
+  actor   User @relation(fields: [actorId], references: [id])
+
+  action  AuditAction
+  comment String?
+
+  createdAt DateTime @default(now())
+
+  @@index([firmId])
+  @@index([documentId])
+}
