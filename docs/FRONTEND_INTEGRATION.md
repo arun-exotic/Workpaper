@@ -225,6 +225,10 @@ response body, it's written to be shown to a user:
 ```json
 { "message": "Document is already approved and cannot be re-uploaded", "error": "Bad Request", "statusCode": 400 }
 ```
+`413` if the file is over 10MB:
+```json
+{ "message": "File too large", "error": "Payload Too Large", "statusCode": 413 }
+```
 
 ### `POST /documents/:id/start-review` — REVIEWER only
 Moves `UPLOADED` → `UNDER_REVIEW`. No request body.
@@ -317,3 +321,4 @@ body):
 `403`/`404` a generic "please sign in again" / "you don't have access" /
 "not found" in the UI is fine — don't rely on the exact text of those for
 anything beyond a status-code check.
+

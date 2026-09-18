@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { AuditAction, Prisma } from '@prisma/client';
 import { PrismaService, PrismaTx } from '../prisma/prisma.service';
 import { RequestContext } from '../common/context/request-context';
+import { assertFound } from '../common/errors/assert-found';
 
 interface RecordAuditEventParams {
   clientId: number;
@@ -69,13 +70,13 @@ export class AuditService {
     const client = await this.prisma.db.client.findUnique({
       where: { id: clientId },
     });
-    if (!client) throw new NotFoundException('Client not found');
+    assertFound(client, 'Client not found');
   }
 
   private async assertDocumentInFirm(documentId: number) {
     const document = await this.prisma.db.document.findUnique({
       where: { id: documentId },
     });
-    if (!document) throw new NotFoundException('Document not found');
+    assertFound(document, 'Document not found');
   }
 }

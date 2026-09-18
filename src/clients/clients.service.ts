@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { AuditAction, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { assertFound } from '../common/errors/assert-found';
 import { CreateClientDto } from './dto/create-client.dto';
 
 @Injectable()
@@ -35,11 +36,8 @@ export class ClientsService {
       where: { id },
       include: { documents: { orderBy: { createdAt: 'asc' } } },
     });
-    if (!client) {
-      // Same 404 whether the row doesn't exist or belongs to another firm —
-      // an attacker can't distinguish "no such client" from "not yours".
-      throw new NotFoundException('Client not found');
-    }
-    return client;
+    // Same 404 whether the row doesn't exist or belongs to another firm —
+    // an attacker can't distinguish "no such client" from "not yours".
+    return assertFound(client, 'Client not found');
   }
 }

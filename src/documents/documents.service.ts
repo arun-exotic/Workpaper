@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuditAction, DocumentStatus, Prisma } from '@prisma/client';
 import * as fs from 'node:fs/promises';
@@ -10,6 +6,7 @@ import * as path from 'node:path';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { RequestContext } from '../common/context/request-context';
+import { assertFound } from '../common/errors/assert-found';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { ReviewAction, ReviewDocumentDto } from './dto/review-document.dto';
 
@@ -43,7 +40,11 @@ export class DocumentsService {
     });
   }
 
-  findByClient(clientId: number) {
+  async findByClient(clientId: number) {
+    // Without this, a cross-firm or nonexistent clientId silently returns
+    // [] instead of 404 — the only read in this service that skipped the
+    // existence check every other one makes.
+    await this.getClientOrThrow(clientId);
     return this.prisma.db.document.findMany({
       where: { clientId },
       orderBy: { createdAt: 'asc' },
@@ -58,8 +59,7 @@ export class DocumentsService {
         uploadedBy: { select: { id: true, name: true, role: true } },
       },
     });
-    if (!document) throw new NotFoundException('Document not found');
-    return document;
+    return assertFound(document, 'Document not found');
   }
 
   /** Staff uploads (or re-uploads after a correction request). */
@@ -80,7 +80,15 @@ export class DocumentsService {
     const wasCorrectionRequested =
       document.status === DocumentStatus.CORRECTION_REQUIRED;
     const firmId = RequestContext.getFirmId();
-    const storedName = `${id}-${Date.now()}-${file.originalname}`;
+    // path.basename strips any directory component the caller's filename
+    // might contain. Busboy already does this before file.originalname
+    // reaches us (see its default preservePath: false), so this is
+    // deliberately redundant — it shouldn't depend on that upstream
+    // default holding forever, since this is the one place a filename
+    // controlled by an authenticated-but-untrusted upload ends up in a
+    // filesystem path.
+    const safeOriginalName = path.basename(file.originalname);
+    const storedName = `${id}-${Date.now()}-${safeOriginalName}`;
     const relativePath = path.join(
       String(firmId),
       String(document.clientId),
@@ -99,7 +107,7 @@ export class DocumentsService {
         data: {
           status: DocumentStatus.UPLOADED,
           filePath: relativePath,
-          fileOriginalName: file.originalname,
+          fileOriginalName: safeOriginalName,
           uploadedById: RequestContext.getUserId(),
           uploadedAt: new Date(),
           reviewComment: null,
@@ -110,8 +118,8 @@ export class DocumentsService {
         documentId: id,
         action: AuditAction.DOCUMENT_UPLOADED,
         comment: wasCorrectionRequested
-          ? `Uploaded revised document (${file.originalname})`
-          : `Uploaded ${file.originalname}`,
+          ? `Uploaded revised document (${safeOriginalName})`
+          : `Uploaded ${safeOriginalName}`,
       });
       return updated;
     });
@@ -177,15 +185,13 @@ export class DocumentsService {
     const client = await this.prisma.db.client.findUnique({
       where: { id: clientId },
     });
-    if (!client) throw new NotFoundException('Client not found');
-    return client;
+    return assertFound(client, 'Client not found');
   }
 
   private async getDocumentOrThrow(id: number) {
     const document = await this.prisma.db.document.findUnique({
       where: { id },
     });
-    if (!document) throw new NotFoundException('Document not found');
-    return document;
+    return assertFound(document, 'Document not found');
   }
 }

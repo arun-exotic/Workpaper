@@ -18,6 +18,12 @@ import { CreateDocumentDto } from './dto/create-document.dto';
 import { ReviewDocumentDto } from './dto/review-document.dto';
 import { DocumentsService } from './documents.service';
 
+// 10MB comfortably covers a scanned bank statement/invoice PDF (the real
+// sample in sample-data/ is ~150KB) without leaving the endpoint able to
+// buffer an unbounded body into memory — FileInterceptor with no limits
+// imposes none.
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
 @ApiTags('documents')
 @ApiBearerAuth()
 @Controller()
@@ -51,7 +57,9 @@ export class DocumentsController {
   @Post('documents/:id/upload')
   @Roles(Role.STAFF, Role.ADMIN)
   @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES } }),
+  )
   upload(
     @Param('id', ParseIntPipe) id: number,
     @UploadedFile() file?: Express.Multer.File,
