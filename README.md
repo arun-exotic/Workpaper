@@ -1,28 +1,48 @@
-# OBLIQ-in — Mini Audit Document Review System (backend)
+# OBLIQ-in — Mini Audit Document Review System
 
-A backend prototype for a CA firm audit workflow: create a client, request the
+A prototype for a CA firm audit workflow: create a client, request the
 documents an audit needs, have staff upload them, have a reviewer approve or
 kick them back for correction, and see the full history of who did what and
 when.
 
-This submission is **backend-only by design**. The evaluation brief explicitly
-scopes UI as optional and this repo focuses the time budget on workflow logic,
-data modelling, and — the part the brief calls out as most important —
-tenant isolation and audit traceability. A frontend (Lovable/v0) is expected
-to sit on top of this API separately; `app.enableCors()` in
-[`src/main.ts`](src/main.ts) and the Swagger contract at `/docs` are there to
-make that integration straightforward. Building that frontend (e.g. in
-Lovable/v0)? Start with
-[`docs/FRONTEND_INTEGRATION.md`](docs/FRONTEND_INTEGRATION.md) — every
-endpoint, request/response shape, and a suggested screen breakdown in one
-paste-able file.
+**This repository is the backend**, and is where the evaluation time budget
+went: workflow logic, data modelling, and — the part the brief calls out as
+most important — tenant isolation and audit traceability. `app.enableCors()`
+in [`src/main.ts`](src/main.ts) and the Swagger contract at `/docs` make it
+straightforward for a frontend to sit on top over HTTPS + JWT, which is
+exactly what happened — see [Live demo](#live-demo) below.
+
+## Live demo
+
+| | |
+|---|---|
+| **Backend API** | https://workpaper.onrender.com ([Swagger UI](https://workpaper.onrender.com/docs)) |
+| **Frontend** | https://workpaper-ui.vercel.app |
+| **Frontend source** | [github.com/arun-exotic/Workpaper-ui](https://github.com/arun-exotic/Workpaper-ui) |
+
+Both are free-tier deploys, so the backend can take 30–60s to respond on the
+first request after a period of inactivity while Render wakes it back up —
+not a broken deploy, just a cold start. Demo account credentials are in
+[Setup → step 3](#3-run-migrations-and-seed-two-firms) below; the same
+accounts work against the live backend.
+
+**On the frontend**: the brief scopes UI as optional, and my first attempt at
+one — built in Emergent — looked better than what shipped, but Emergent's
+free tier doesn't support publishing a live link, and getting a demo online
+mattered more than the extra polish. I rebuilt the UI in v0 against the
+[frontend integration doc](docs/FRONTEND_INTEGRATION.md) below, then used
+Claude Code to fix bugs (a login button that silently did nothing was the big
+one — see that repo's commits) and wire up the file download/activity-feed
+features once the backend grew them. All three tools are disclosed in
+[AI Tools Used](#ai-tools-used).
 
 ## Stack
 
 - **NestJS 11** + **Prisma 6** + **PostgreSQL**
 - JWT auth (`@nestjs/jwt` + `passport-jwt`)
-- Local disk storage for uploaded files (swappable for S3 later — see "One
-  more week")
+- File storage behind a driver interface (`src/storage/`) — local disk for
+  dev/tests, [Supabase Storage](#deploying) in the live deploy, swapped by
+  one env var
 
 This mirrors, at a much smaller scale, the NestJS/Prisma/Postgres stack and
 tenant-scoping pattern used by a production multi-tenant system I referenced
@@ -58,19 +78,26 @@ the audit trail can show "Aman started reviewing" as a distinct event from
 ## Architecture
 
 ```
-Frontend (out of scope here — Lovable/v0, calls this API over HTTPS + JWT)
-   ↓
-NestJS controllers  (route + role check via @Roles guard)
-   ↓
-Services            (state-machine transitions, wrapped in a DB transaction
-                      with the AuditEvent they produce)
-   ↓
-Prisma (tenant-scoped client extension)
-   ↓
+Frontend (Next.js on Vercel — github.com/arun-exotic/Workpaper-ui)
+   │  HTTPS + JWT (Authorization: Bearer <token>)
+   ▼
+NestJS controllers   (route + role check via @Roles guard)
+   ▼
+Services             (state-machine transitions, wrapped in a DB transaction
+                       with the AuditEvent they produce)
+   ▼
+Prisma               (tenant-scoped client extension — every query auto-
+                       filtered/force-set by the caller's firmId)
+   ▼
 PostgreSQL
-   ↓
-AuditEvent table (append-only, no update/delete route anywhere)
+   ▼
+AuditEvent table     (append-only — no update/delete route anywhere, for
+                       any role)
 ```
+
+The frontend is a separate deploy with no privileged access of its own: it
+holds a JWT like any other client of this API and gets exactly the access
+that token's role allows, enforced entirely on this side of the line.
 
 ### Tenant isolation: how Firm A is kept out of Firm B's data
 
@@ -150,8 +177,9 @@ can never exist without the event that says who approved it and when.
 
 There is no `PATCH`/`DELETE` route for `AuditEvent` anywhere in the API, and
 no service method that updates or deletes one — once written, an event is
-unreachable by every role, including `ADMIN`. `GET /documents/:id/audit-log`
-and `GET /clients/:id/audit-log` are the only ways to read it.
+unreachable by every role, including `ADMIN`. `GET /documents/:id/audit-log`,
+`GET /clients/:id/audit-log`, and the firm-wide `GET /audit-log` are the only
+ways to read it.
 
 Example, from the seeded data:
 
@@ -273,13 +301,13 @@ curl -s -X POST http://localhost:3000/documents/1/review -H "Authorization: Bear
 curl -s http://localhost:3000/documents/1/audit-log -H "Authorization: Bearer $TOKEN"
 ```
 
-Or drive the same flow visually from Swagger UI at `/docs` — it has
-"Authorize" (paste the JWT from step 1/4) and "Try it out" on every route, so
-the whole workflow above is clickable without curl.
+Or drive the same flow visually from Swagger UI at `/docs`, or from the
+[live frontend](#live-demo) — either has "Authorize"/login and every action
+above clickable without curl.
 
-> **Screenshots**: the submission brief asks for screenshots in the repo.
-> Add a few PNGs of the Swagger UI flow above (or of the eventual Lovable/v0
-> frontend) to `docs/screenshots/` before submitting — none are committed yet.
+> **Screenshots**: the submission brief asks for screenshots in the repo. Add
+> a few PNGs of the frontend or Swagger UI flow above to `docs/screenshots/`
+> before submitting — none are committed yet.
 
 ## Sample data
 
@@ -393,22 +421,42 @@ firm-with-history scale.
 
 ## AI Tools Used
 
-**Claude Code**: Used throughout — architecture decisions (Prisma tenant
-extension + AsyncLocalStorage request context, document state machine,
-transaction-scoped audit writes), all source code, the Prisma schema,
-seed script, e2e test suite, and this README.
+**Claude Code**: Used throughout, for both repos — architecture decisions
+(Prisma tenant extension + AsyncLocalStorage request context, document state
+machine, transaction-scoped audit writes), all backend source code, the
+Prisma schema, seed script, e2e test suite, this README, deployment
+troubleshooting (Render + Supabase), and — on the frontend — bug fixes (a
+login button that never submitted its form), the file view/download
+integration, and the client/firm activity feeds.
 **ChatGPT**: Not used.
 **Gemini**: Not used.
 **Cursor**: Not used.
 **GitHub Copilot**: Not used.
+**v0**: Generated the frontend's initial Next.js scaffold and screens (login,
+client list, client/document detail, review actions) from
+[`docs/FRONTEND_INTEGRATION.md`](docs/FRONTEND_INTEGRATION.md)'s API
+contract — see [github.com/arun-exotic/Workpaper-ui](https://github.com/arun-exotic/Workpaper-ui).
+**Emergent**: An earlier, further-along frontend attempt — visually ahead of
+what shipped — but Emergent's free tier doesn't support publishing a live
+link, which cost time before the pivot to v0.
 
-**How AI was used**: I described the task (this repo's [`docs/TASK.md`](docs/TASK.md)) and asked
-for a NestJS/Prisma/Postgres backend following the tenant-scoping and
-guard/interceptor conventions of an existing production codebase I referenced
-for architectural consistency. Claude proposed the Prisma Client extension +
-AsyncLocalStorage approach for tenant isolation, the document status state
-machine, and the transaction-scoped audit-event pattern; I directed the
-scope (backend-only, Postgres, which patterns to mirror vs. simplify) and
-reviewed/tested the result end-to-end (manual curl walkthrough of the full
-workflow plus cross-firm isolation checks, then a full e2e test suite) before
-accepting it.
+**How AI was used**: For the backend, I described the task (this repo's
+[`docs/TASK.md`](docs/TASK.md)) and asked for a NestJS/Prisma/Postgres
+backend following the tenant-scoping and guard/interceptor conventions of an
+existing production codebase I referenced for architectural consistency.
+Claude proposed the Prisma Client extension + AsyncLocalStorage approach for
+tenant isolation, the document status state machine, and the
+transaction-scoped audit-event pattern; I directed the scope (Postgres, which
+patterns to mirror vs. simplify, when to add the real file-storage/Supabase
+integration) and reviewed/tested the result end-to-end (manual curl
+walkthrough of the full workflow plus cross-firm isolation checks, then a
+full e2e test suite, then a live verification pass against the deployed
+Render URL) before accepting it.
+
+For the frontend, I wrote the API contract by hand
+([`docs/FRONTEND_INTEGRATION.md`](docs/FRONTEND_INTEGRATION.md)) and gave it
+to v0 to generate the UI against; once that was live, I had Claude Code run
+it end-to-end in a browser, which is how the broken login button and the
+missing file-download UI got caught and fixed, and where the client- and
+firm-level activity feeds were added on top of the backend's audit-log
+endpoints.
