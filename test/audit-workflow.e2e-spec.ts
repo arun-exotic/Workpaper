@@ -314,6 +314,33 @@ describe('Audit workflow (e2e)', () => {
       .expect(404);
   });
 
+  it('returns a firm-wide activity feed scoped to the caller\'s firm', async () => {
+    const firmAFeed = await request(app.getHttpServer())
+      .get('/audit-log')
+      .set('Authorization', `Bearer ${staffToken}`)
+      .expect(200);
+
+    const events = firmAFeed.body as Array<{
+      clientId: number;
+      client: { name: string };
+    }>;
+    expect(events.length).toBeGreaterThan(0);
+    expect(events.every((e) => e.clientId === clientId)).toBe(true);
+    expect(events.every((e) => e.client.name === 'E2E Client Pvt Ltd')).toBe(
+      true,
+    );
+
+    const firmBFeed = await request(app.getHttpServer())
+      .get('/audit-log')
+      .set('Authorization', `Bearer ${otherFirmStaffToken}`)
+      .expect(200);
+
+    // Firm B never created a client/document of its own in this suite, so
+    // its feed must be empty — not just missing Firm A's rows by filter,
+    // but structurally unable to see them at all.
+    expect(firmBFeed.body).toEqual([]);
+  });
+
   it('rejects a request-correction with no comment', async () => {
     const doc = await rawPrisma.document.create({
       data: {

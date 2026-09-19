@@ -12,11 +12,20 @@ changes, this file and `docs/openapi.json` should change with it.
 
 ## Base URL & running the API
 
+- **Live deployment (use this for the mock UI's "API base URL" field):**
+  `https://workpaper.onrender.com`
+  - Free-tier Render spins down after 15 minutes idle — the first request
+    after a gap can take 30–60s to respond while it wakes up. Don't treat
+    that as a broken deploy; just wait and retry once.
+  - Uploaded files persist across redeploys (real Supabase Postgres +
+    Storage behind this URL, not local disk) — see README's "Deploying"
+    section for how it's wired.
 - Local dev: `http://localhost:3000` (`npm run start:dev` in the backend repo)
 - CORS is already open (`app.enableCors()` in `src/main.ts`) — a frontend
   hosted on a different origin (Lovable/v0 preview domain, Vercel, etc.) can
-  call this API directly with no proxy.
-- Swagger UI: `http://localhost:3000/docs` — has "Authorize" + "Try it out"
+  call this API directly with no proxy, against either base URL above.
+- Swagger UI: append `/docs` to either base URL above (e.g.
+  `https://workpaper.onrender.com/docs`) — has "Authorize" + "Try it out"
   on every route, useful for checking a response shape live while building.
 
 ## Auth
@@ -287,6 +296,17 @@ client-wide activity feed.
 
 Response `200`: `AuditEvent[]`, each with `actor` and `document` populated.
 
+### `GET /audit-log`
+Every event across every client in the caller's firm, **newest first**
+(the other audit-log endpoints are oldest-first, since they read as a
+document's/client's history top-to-bottom; this one reads as a live feed,
+so newest-first matches the "what just happened" use case) — a firm-wide
+activity feed. No path parameter; the caller's firm comes from their token.
+
+Response `200`: `AuditEvent[]`, each with `actor`, `client`, and `document`
+populated (`document` is `null` for client-level events like
+`CLIENT_CREATED`).
+
 ## Document status → allowed actions (drive your buttons off this)
 
 ```
@@ -324,10 +344,13 @@ A minimal mock UI covering the whole brief needs roughly:
    `UNDER_REVIEW` — correction opens a comment field). Below that, the audit
    trail (`GET /documents/:id/audit-log`) rendered as a timeline: actor,
    role, action, timestamp, comment.
-5. **(optional) Firm-wide activity feed** — `GET /clients/:clientId/audit-log`
-   rendered the same way, for a client-level view instead of per-document.
+5. **Firm-wide activity feed** (`GET /audit-log`) — every event across every
+   client, newest first, rendered as a timeline the same way as the
+   per-document one: actor, role, client + document name, action,
+   timestamp, comment. A good landing tab next to the client list, since it
+   answers "what just happened across the firm" at a glance.
 
-That's the whole brief's workflow in five screens plus login.
+That's the whole brief's workflow in six screens plus login.
 
 ## Errors, generically
 

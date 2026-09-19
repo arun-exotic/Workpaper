@@ -101,6 +101,12 @@ export class DocumentsController {
     return this.documentsService.review(id, dto);
   }
 
+  @Get('audit-log')
+  @Roles(Role.ADMIN, Role.STAFF, Role.REVIEWER)
+  firmAuditLog() {
+    return this.auditService.findAll();
+  }
+
   @Get('documents/:id/audit-log')
   @Roles(Role.ADMIN, Role.STAFF, Role.REVIEWER)
   auditLog(@Param('id', ParseIntPipe) id: number) {

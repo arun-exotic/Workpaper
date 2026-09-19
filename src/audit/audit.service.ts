@@ -41,6 +41,22 @@ export class AuditService {
     });
   }
 
+  /**
+   * Every event in the caller's firm, newest first — a firm-wide activity
+   * feed. No explicit firmId filter needed: the tenant extension scopes
+   * this findMany() the same way it scopes every other query.
+   */
+  async findAll() {
+    return this.prisma.db.auditEvent.findMany({
+      include: {
+        actor: { select: { id: true, name: true, role: true } },
+        client: { select: { id: true, name: true } },
+        document: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async findByClient(clientId: number) {
     await this.assertClientInFirm(clientId);
     return this.prisma.db.auditEvent.findMany({
